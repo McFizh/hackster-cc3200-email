@@ -7,8 +7,9 @@ $config = [
         "imap_user"		=> "user@example.com",
         "imap_password"		=> "PasswordForExample",
 
-        "aws_iot_access_key"	=> "---",
-        "aws_iot_secret_key"	=> "---",
-	"aws_iot_thing_name"	=> "---"
+	"aws_iot_host"          => "",
+	"aws_iot_cafile"        => "",
+	"aws_iot_crtfile"       => "",
+	"aws_iot_keyfile"       => ""
 ];
 

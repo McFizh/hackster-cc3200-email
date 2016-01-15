@@ -1,7 +1,14 @@
 <?PHP
-require "lib/aws.phar";
+require "lib/libmqtt.php";
 require "lib/common.php";
 require "config/config.php";
+
+$mqtt = null;
+
+// Handle sigterm/sigint signals
+declare(ticks = 1);
+pcntl_signal(SIGTERM, "signal_handler");
+pcntl_signal(SIGINT, "signal_handler");
 
 /* **************************************************************************************
    Open SQLite file and create temperature/status tables if they are not already there 
@@ -23,65 +30,105 @@ $db->exec("CREATE TABLE IF NOT EXISTS imap_status (
 $savedStatus = readStatusFromSqlite($db);
 
 /* **************************************************************************************
-   Open imap connection 
-   ************************************************************************************** */
-echo "» Reading email state\n";
+   Create amazon IOT client
+   ************************************************************************************** */   
+echo "» Connecting to MQTT server\n";
 
-$mbox = imap_open($config["imap_server"], $config["imap_user"], $config["imap_password"]);
-$imapStatus = imap_status($mbox, $config["imap_server"], SA_ALL);
+$mqtt = new libMQTT\client( $config["aws_iot_host"], 8883, "backendClient");
+$mqtt->setClientCert($config["aws_iot_crtfile"], $config["aws_iot_keyfile"]);
+$mqtt->setCAFile($config["aws_iot_cafile"]);
+$mqtt->setCryptoProtocol("tlsv1.2");
+$mqtt->setVerbose(1);
 
-// Read message IDs of UNSEEN mails
-$unseen = [];
-
-if( $imapStatus->unseen > 0 )
+if(!$mqtt->connect())
 {
-	$messages = imap_search($mbox, "UNSEEN");
-	foreach($messages as $msgID)
+	echo "  » Connection failed\n";
+	exit;
+}
+
+$topics = array();
+$topics[ "sensor/cc3200/values" ] = [ "qos"=>1 , "function"=>"procmsg" ];
+
+$mqtt->subscribe($topics);
+
+$lastEmailCheck = 0;
+while( 1 )
+{
+	$mqtt->eventLoop();
+	usleep(250000);
+
+	if( ( time() - $lastEmailCheck ) > 60 )
 	{
-		$msg = imap_headerinfo($mbox, $msgID);
-		$unseen[]=$msg->message_id;
+		echo "» Reading email state\n";
+
+		if(readImapStatus($config, $savedStatus, $db))
+		{
+			echo "  » New email found\n";
+			$mqtt->publish("sensor/cc3200/cmd", "{\"mail\":true}", 1);
+		}
+
+		$lastEmailCheck = time();
 	}
 }
 
-imap_close($mbox);
-
-// 
-$last_unseen = json_decode($savedStatus->unseen);
-$new_message_found = false;
-
-foreach($unseen as $key=>$value)
-{
-	// Does 'unseen' contain msgID we haven't seen before?
-	if( array_search($value, $last_unseen) === FALSE )
-		$new_message_found = true;
-}
-
-// Current unseen list doesn't match saved one
-if( count($unseen) != count($last_unseen) || $new_message_found )
-{
-	saveStatusToSqlite($db, "unseen", json_encode($unseen));
-}
-
-if($new_message_found)
-{
-	echo "  » New email found\n";
-}
-
 /* **************************************************************************************
-   Create amazon IOT client
-   ************************************************************************************** */
-echo "» Reading thing state\n";
+   Signal and message handlers
+   ************************************************************************************** */   
+function procmsg($topic,$msg,$qos)
+{
+	global $db;
 
-$iot = new Aws\IotDataPlane\IotDataPlaneClient([
-	'region'  => 'eu-west-1',
-	'version' => '2015-05-28',
-	'credentials' => [
-		'key' => $config['aws_iot_access_key'],
-		'secret' => $config['aws_iot_secret_key']
-	]
-]);
+	if( $topic == "sensor/cc3200/values" )
+	{
+		$payload = json_decode($msg);
+		if(!$payload)
+			return;
+		
+		if( !isset($payload->hum) || !isset($payload->temp) || !isset($payload->time) )
+			return;
 
-$result = $iot->getThingShadow([
-	'thingName' => $config["aws_iot_thing_name"]
-]);
+		if( !is_numeric($payload->hum) || !is_numeric($payload->temp) )
+			return;
+
+		$time = $db->escapeString($payload->time);
+
+		$sql = sprintf("INSERT INTO environment (recorded,temperature,humidity) VALUES ('%s', %f, %f)",
+			$time,
+			floatval($payload->temp),
+			floatval($payload->hum) );
+
+		echo $sql."\n";
+		$res = $db->exec($sql);
+		if(!$res)
+		{
+			echo "DB error: "+$db->lastErrorMsg()+"\n";
+			return;
+		}
+
+	} else {
+		echo "Msg Received: ".date("r")."\nTopic:{$topic}\n$msg\n";
+	}
+}
+
+function signal_handler($signal) {
+	global $mqtt;
+	switch($signal) {
+		case SIGTERM:
+			print "Caught SIGTERM\n";
+			unset($mqtt);
+			exit;
+		case SIGKILL:
+			print "Caught SIGKILL\n";
+			unset($mqtt);
+			exit;
+		case SIGINT:
+			print "Caught SIGINT\n";
+			unset($mqtt);
+			exit;
+		default:
+			print "Unknown signal\n";
+			unset($mqtt);
+			exit;
+	}
+}
 
