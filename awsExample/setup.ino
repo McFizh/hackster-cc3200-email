@@ -10,6 +10,9 @@ void setup()
   
   // Setup led pin, serial and rtc
   pinMode(29, OUTPUT);  
+  pinMode(PIR_PIN, INPUT_PULLDOWN);
+  lastMovement=0;
+  attachInterrupt(PUSH2, pirDetectedMovement, RISING);
   
   Serial.begin(9600);
   Serial.println("Init begin..");

@@ -90,14 +90,20 @@ function procmsg($topic,$msg,$qos)
 		if( !is_numeric($payload->hum) || !is_numeric($payload->temp) )
 			return;
 
-		$time = $db->escapeString($payload->time);
+		// (recorded,temperature,humidity) VALUES ('Sun Jan 17 21:15:58 2016', 2100.000000, 2600.000000)
+		$t_time = date_parse_from_format("D M j G:i:s Y", $payload->time);
+		if(!is_array($t_time))
+			return;
+
+		$time = sprintf("%s-%s-%s %s:%s:%s",
+			$t_time["year"], $t_time["month"], $t_time["day"],
+			$t_time["hour"], $t_time["minute"], $t_time["second"]);
 
 		$sql = sprintf("INSERT INTO environment (recorded,temperature,humidity) VALUES ('%s', %f, %f)",
-			$time,
-			floatval($payload->temp),
-			floatval($payload->hum) );
+			$db->escapeString($time),
+			floatval($payload->temp/100.0),
+			floatval($payload->hum/100.0) );
 
-		echo $sql."\n";
 		$res = $db->exec($sql);
 		if(!$res)
 		{

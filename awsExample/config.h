@@ -14,6 +14,7 @@ char ntp_pool[] = "europe.pool.ntp.org";
 char aws_endpoint[] = "xxxxxxxxxxxx.iot.eu-west-1.amazonaws.com";
 
 // 
-#define DHT22_PIN 11
+#define DHT22_PIN 32
+#define PIR_PIN 11
 
 #endif
