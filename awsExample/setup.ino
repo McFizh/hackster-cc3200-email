@@ -8,12 +8,27 @@ void setup()
   unsigned long t_time;
   byte counter;
   
-  // Setup led pin, serial and rtc
-  pinMode(29, OUTPUT);  
-  pinMode(PIR_PIN, INPUT_PULLDOWN);
+  // Setup led pins (red off, yellow on)
+  pinMode(RED_LED, OUTPUT);
+    digitalWrite(RED_LED, LOW);
+  pinMode(YELLOW_LED, OUTPUT);
+    digitalWrite(YELLOW_LED, HIGH);
+  pinMode(LOAD_PIN, OUTPUT);
+    digitalWrite(LOAD_PIN, LOW);
+  
+  #ifdef DEBUG_PIN
+    pinMode(DEBUG_PIN, OUTPUT);
+      digitalWrite(DEBUG_PIN, LOW);
+  #endif
+  
+  // Setup PIR sensor
   lastMovement=0;
+  seenMovement=false;
+  loadEnabled=0;
+  pinMode(PIR_PIN, INPUT_PULLDOWN);
   attachInterrupt(PUSH2, pirDetectedMovement, RISING);
   
+  // Enable serial
   Serial.begin(9600);
   Serial.println("Init begin..");
   
@@ -76,7 +91,13 @@ void setup()
   
   //
   mqttClient.setServer( aws_endpoint , 8883 );
-  mqttClient.setCallback( callback );  
+  mqttClient.setCallback( callback );
+  
+  // Setup timer interrupt
+  setup_timer();  
+  
+  // Setup completed.. shutdown yellow led
+  digitalWrite(YELLOW_LED, LOW);
 }
 
 /* *****************************************************************
@@ -89,7 +110,7 @@ boolean setup_wifi()
   // Led red off
   digitalWrite(29, LOW);
 
-  // Disconnect first, if we are currently connected
+  // Disconnect first, if currently connected
   if(isConnected)
   {
     Serial.println("Disconnecting from WiFi..");
@@ -125,6 +146,19 @@ boolean setup_wifi()
   Serial.println("\nConnected to wifi");
   isConnected = true;  
   return true;
+}
+
+void setup_timer() {
+  
+  MAP_PRCMPeripheralClkEnable(PRCM_TIMERA0, PRCM_RUN_MODE_CLK);
+  MAP_PRCMPeripheralReset(PRCM_TIMERA0);
+
+  TimerIntRegister(TIMERA0_BASE, TIMER_A, &Timer0IntHandler);
+  
+  MAP_TimerConfigure(TIMERA0_BASE, TIMER_CFG_PERIODIC);  
+  MAP_TimerIntEnable(TIMERA0_BASE, TIMER_TIMA_TIMEOUT);  
+  MAP_TimerLoadSet(TIMERA0_BASE, TIMER_A, F_CPU );  
+  MAP_TimerEnable(TIMERA0_BASE, TIMER_A);  
 }
 
 /* *****************************************************************
@@ -164,10 +198,10 @@ void failure_state()
 {
   while(true)
   {
-    delay(500);
-    digitalWrite(29, HIGH);
-    delay(500);
-    digitalWrite(29, LOW);
+    sleep(500);
+    digitalWrite(RED_LED, HIGH);
+    sleep(500);
+    digitalWrite(RED_LED, LOW);
   }
 }
 

@@ -3,6 +3,7 @@
 #include <DateTimeLibrary.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <driverlib/timer.h>
 
 #include "config.h"
 
@@ -14,7 +15,9 @@ WiFiClient client;
 PubSubSslClient mqttClient(client);
 DateTime myRTC;
 
+boolean seenMovement;
 unsigned long lastMovement;
+unsigned long loadEnabled;
 
 /* *****************************************************************
  * Callback for MQTT and Interrupt
@@ -35,9 +38,10 @@ void callback(char* topic, byte* payload, unsigned int length)
   Serial.println();
   
   // Show notification, if less that 2 minutes have been passes since last movement
-  if( ( millis() - lastMovement ) < 120000 )
+  if( seenMovement )
   {
-    
+    digitalWrite(LOAD_PIN, HIGH);
+    loadEnabled = millis();
   }
   
 } 
@@ -45,6 +49,35 @@ void callback(char* topic, byte* payload, unsigned int length)
 void pirDetectedMovement() 
 {
   lastMovement = millis();
+  seenMovement = true;
+  
+   #ifdef DEBUG_PIN
+     digitalWrite(DEBUG_PIN, HIGH);
+   #endif
+  
+}
+
+void Timer0IntHandler()
+{
+  // Close email notifier after 3 minutes
+  if( loadEnabled != 0 && ( millis() - loadEnabled ) > 180000 )
+  {
+    digitalWrite(LOAD_PIN, LOW);
+    loadEnabled = 0;
+  }
+  
+  // If more than 120 seconds has passend since last movement detection, set flag to low
+  if ( seenMovement && ( millis() - lastMovement ) > 120000 )
+  {
+    seenMovement = false;
+    #ifdef DEBUG_PIN
+      digitalWrite(DEBUG_PIN, LOW);
+     #endif
+  }
+
+  //  
+  unsigned long ulStatus = MAP_TimerIntStatus(TIMERA0_BASE, false);
+  MAP_TimerIntClear(TIMERA0_BASE,ulStatus);
 }
 
 /* *****************************************************************
@@ -76,7 +109,7 @@ void loop()
   //    
   if(mqttClient.connect("IoTClient"))
   {
-    Serial.println("Connected to AWS mtqq");
+    Serial.println("Connected to AWS MQTT");
       
     if( !mqttClient.subscribe("sensor/cc3200/cmd") )
     {
@@ -97,12 +130,14 @@ void loop()
       delay( 5000 );
     }
 
+    Serial.println("Disconnecting from MQTT...");
     mqttClient.disconnect();
   } else {
-    Serial.println("Unable to connect to mtqq");
-    delay(60000);
+    Serial.println("Unable to connect to MQTT..");
+    sleep(60000);
   }  
   
-  // Delay for 4 minutes ( 240 seconds ; 240000 ms)
-  delay( 240000 );
+  // Sleep for 4 minutes ( 240 seconds ; 240000 ms)
+  Serial.println("Sleeping for 4 minutes...");
+  sleep( 240000 );
 }

@@ -17,4 +17,9 @@ char aws_endpoint[] = "xxxxxxxxxxxx.iot.eu-west-1.amazonaws.com";
 #define DHT22_PIN 32
 #define PIR_PIN 11
 
+#define LOAD_PIN 8
+
+// Comment this out, if you don't have debug led connected
+#define DEBUG_PIN 5
+
 #endif

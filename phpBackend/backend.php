@@ -65,6 +65,7 @@ while( 1 )
 		{
 			echo "  » New email found\n";
 			$mqtt->publish("sensor/cc3200/cmd", "{\"mail\":true}", 1);
+			$savedStatus = readStatusFromSqlite($db);
 		}
 
 		$lastEmailCheck = time();
